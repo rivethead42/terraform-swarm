@@ -100,7 +100,7 @@ resource "docker_service" "wordpress-service" {
       ]
 
       env {
-        WORDPRESS_DB_HOST          = "db:3306"
+        WORDPRESS_DB_HOST          = "localhost:3306"
         MYSQL_DATABASE             = "wordpress"
         WORDPRESS_DB_PASSWORD_FILE = "/run/secrets/${docker_secret.mysql_db_password.name}"
       }
@@ -114,7 +114,7 @@ resource "docker_service" "wordpress-service" {
   endpoint_spec {
     ports {
       target_port    = "80"
-      published_port = "8080"
+      published_port = "8081"
     }
   }
 }
