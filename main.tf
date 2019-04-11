@@ -1,39 +1,32 @@
-variable "mysql_root_password" {
-  description = "The MySQL root password."
-  default     = "P4sSw0rd0!"
-}
-
-variable "ghost_db_username" {
-  description = "Ghost blog database username."
-  default     = "root"
-}
-
-variable "ghost_db_name" {
-  description = "Ghost blog database name."
-  default     = "ghost"
-}
-
 variable "mysql_network_alias" {
   description = "The network alias for MySQL."
   default     = "db"
 }
 
-variable "ghost_network_alias" {
-  description = "The network alias for Ghost"
-  default     = "ghost"
+variable "mysql_root_password" {
+  description = "MySQL root password."
 }
 
-resource "docker_image" "ghost_image" {
-  name = "ghost:alpine"
+variable "mysql_db_password" {
+  description = "MySQL user password."
 }
 
 resource "docker_image" "mysql_image" {
   name = "mysql:5.7"
 }
 
-resource "docker_network" "public_bridge_network" {
-  name   = "public_network"
-  driver = "overlay"
+resource "docker_image" "wordpress_image" {
+  name = "wordpress:latest"
+}
+
+resource "docker_secret" "mysql_root_password" {
+  name = "root_password"
+  data = "${var.mysql_root_password}"
+}
+
+resource "docker_secret" "mysql_db_password" {
+  name = "db_password"
+  data = "${var.mysql_db_password}"
 }
 
 resource "docker_network" "private_bridge_network" {
@@ -42,34 +35,13 @@ resource "docker_network" "private_bridge_network" {
   internal = true
 }
 
-resource "docker_volume" "mysql_data_volume" {
-  name = "mysql_data"
+resource "docker_network" "public_bridge_network" {
+  name   = "public_network"
+  driver = "overlay"
 }
 
-resource "docker_service" "ghost-service" {
-  name = "ghost"
-
-  task_spec {
-    container_spec {
-      image = "${docker_image.ghost_image.name}"
-
-      env {
-         database__client               = "mysql"
-         database__connection__host     = "${var.mysql_network_alias}"
-         database__connection__user     = "${var.ghost_db_username}"
-         database__connection__password = "${var.mysql_root_password}"
-         database__connection__database = "${var.ghost_db_name}"
-      }
-    }
-    networks = ["${docker_network.public_bridge_network.name}", "${docker_network.private_bridge_network.name}"]
-  }
-
-  endpoint_spec {
-    ports {
-      target_port    = "2368"
-      published_port = "8080"
-    }
-  }
+resource "docker_volume" "mysql_data_volume" {
+  name = "mysql_data"
 }
 
 resource "docker_service" "mysql-service" {
@@ -79,8 +51,23 @@ resource "docker_service" "mysql-service" {
     container_spec {
       image = "${docker_image.mysql_image.name}"
 
+      secrets = [
+        {
+          secret_id   = "${docker_secret.mysql_root_password.id}"
+          secret_name = "${docker_secret.mysql_root_password.name}"
+          file_name   = "/run/secrets/${docker_secret.mysql_root_password.name}"
+        },
+        {
+          secret_id   = "${docker_secret.mysql_db_password.id}"
+          secret_name = "${docker_secret.mysql_db_password.name}"
+          file_name   = "/run/secrets/${docker_secret.mysql_db_password.name}"
+        }
+      ]
+
       env {
-        MYSQL_ROOT_PASSWORD = "${var.mysql_root_password}"
+        MYSQL_ROOT_PASSWORD_FILE = "/run/secrets/${docker_secret.mysql_root_password.name}"
+        MYSQL_DATABASE           = "wordpress"
+        MYSQL_PASSWORD_FILE      = "/run/secrets/${docker_secret.mysql_db_password.name}"
       }
 
       mounts = [
@@ -91,6 +78,43 @@ resource "docker_service" "mysql-service" {
         }
       ]
     }
-    networks = ["${docker_network.private_bridge_network.name}"]
+    networks = [
+      "${docker_network.private_bridge_network.name}"
+    ]
+  }
+}
+
+resource "docker_service" "wordpress-service" {
+  name = "wordpress"
+
+  task_spec {
+    container_spec {
+      image = "${docker_image.wordpress_image.name}"
+
+      secrets = [
+        {
+          secret_id   = "${docker_secret.mysql_db_password.id}"
+          secret_name = "${docker_secret.mysql_db_password.name}"
+          file_name   = "/run/secrets/${docker_secret.mysql_db_password.name}"
+        }
+      ]
+
+      env {
+        WORDPRESS_DB_HOST          = "db:3306"
+        MYSQL_DATABASE             = "wordpress"
+        WORDPRESS_DB_PASSWORD_FILE = "/run/secrets/${docker_secret.mysql_db_password.name}"
+      }
+    }
+    networks = [
+      "${docker_network.private_bridge_network.name}",
+      "${docker_network.public_bridge_network.name}"
+    ]
+  }
+
+  endpoint_spec {
+    ports {
+      target_port    = "80"
+      published_port = "8080"
+    }
   }
 }
