@@ -100,7 +100,7 @@ resource "docker_service" "wordpress-service" {
       ]
 
       env {
-        WORDPRESS_DB_HOST          = "localhost:3306"
+        WORDPRESS_DB_HOST          = "${var.mysql_network_alias}:3306"
         MYSQL_DATABASE             = "wordpress"
         WORDPRESS_DB_PASSWORD_FILE = "/run/secrets/${docker_secret.mysql_db_password.name}"
       }
